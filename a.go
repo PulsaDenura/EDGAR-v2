@@ -120,7 +120,7 @@ func main() {
 		return
 	}
 
-	fmt.Printf("\n" + forestGreen + bold + "EDGARv2 (Evergreen Edition)" + reset + "\n")
+	fmt.Printf("\n" + forestGreen + bold + "EDGAR v2" + reset + "\n")
 
 	for _, ticker := range tickers {
 		t := strings.ToUpper(strings.TrimSpace(ticker))
@@ -287,7 +287,7 @@ func downloadFiling(paddedCIK, accNum, docName, date, form, dir string) error {
 	// 8. Build the final output with Metadata at the TOP
 	// Using a distinct header helps the AI cite its sources chronologically.
 	header := fmt.Sprintf("--- METADATA ---\nCOMPANY: %s\nCIK: %s\nFORM: %s\nDATE: %s\n----------------\n\n",
-		dir, paddedCIK, form, date)
+		strings.Replace(dir, "filings_", "", 1), paddedCIK, form, date)
 
 	finalContent := header + text
 
