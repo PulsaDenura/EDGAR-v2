@@ -8,31 +8,29 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/k3a/html2text"
+	"github.com/jaytaylor/html2text"
 	"golang.org/x/time/rate"
 )
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Minimal Dark Mode theme
+// Everforest  Palette
 // ──────────────────────────────────────────────────────────────────────────────
 const (
-	reset      = "\033[0m"
-	bold       = "\033[1m"
-	dim        = "\033[2m"
-	cyan       = "\033[38;5;45m"
-	mutedGreen = "\033[38;5;76m"
-	warmYellow = "\033[38;5;178m"
-	softRed    = "\033[38;5;203m"
-	gray       = "\033[90m"
+	reset       = "\033[0m"
+	bold        = "\033[1m"
+	dim         = "\033[2m"
+	forestGreen = "\033[38;5;108m" // Sage green
+	earthYellow = "\033[38;5;208m" // Soft orange/yellow
+	aquaBlue    = "\033[38;5;109m" // Muted blue-green
+	softRed     = "\033[38;5;167m" // Terracotta red
+	bgGray      = "\033[38;5;243m" // Warm gray
 )
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Structs
-// ──────────────────────────────────────────────────────────────────────────────
 type Company struct {
 	CIK    int    `json:"cik_str"`
 	Ticker string `json:"ticker"`
@@ -58,9 +56,6 @@ type item struct {
 	dateStr  string
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Constants
-// ──────────────────────────────────────────────────────────────────────────────
 const (
 	UserAgent         = "Company SysAdmin contact@yahoo.com"
 	MaxFilesToFetch   = 10
@@ -69,31 +64,17 @@ const (
 	DefaultRetryDelay = 5 * time.Second
 )
 
-// ──────────────────────────────────────────────────────────────────────────────
-// HTTP Client & Rate Limiter (SEC-compliant)
-// ──────────────────────────────────────────────────────────────────────────────
 var (
-	httpClient = &http.Client{
-		Timeout: 45 * time.Second,
-	}
-	// 8 requests per second is very safe (SEC allows ~10)
-	limiter = rate.NewLimiter(rate.Limit(8), 8)
+	httpClient = &http.Client{Timeout: 45 * time.Second}
+	limiter    = rate.NewLimiter(rate.Limit(8), 8)
 )
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Rate-limited request with 429 + Retry-After handling
-// ──────────────────────────────────────────────────────────────────────────────
 func parseRetryAfter(val string) time.Duration {
 	if val == "" {
 		return 0
 	}
 	if secs, err := strconv.Atoi(val); err == nil && secs > 0 {
 		return time.Duration(secs) * time.Second
-	}
-	if t, err := http.ParseTime(val); err == nil {
-		if d := time.Until(t); d > 0 {
-			return d
-		}
 	}
 	return 0
 }
@@ -102,39 +83,32 @@ func doRateLimitedRequest(req *http.Request) (*http.Response, error) {
 	if err := limiter.Wait(context.Background()); err != nil {
 		return nil, fmt.Errorf("rate limiter: %w", err)
 	}
-
 	for attempt := 0; attempt < MaxRetries; attempt++ {
 		resp, err := httpClient.Do(req)
 		if err != nil {
 			return nil, err
 		}
-
-		if resp.StatusCode == http.StatusTooManyRequests { // 429
+		if resp.StatusCode == http.StatusTooManyRequests {
 			delay := parseRetryAfter(resp.Header.Get("Retry-After"))
 			if delay <= 0 {
-				delay = DefaultRetryDelay * time.Duration(attempt+1) // back-off
+				delay = DefaultRetryDelay * time.Duration(attempt+1)
 			}
 			resp.Body.Close()
 			time.Sleep(delay)
 			continue
 		}
-
-		return resp, nil // caller checks status code
+		return resp, nil
 	}
-	return nil, fmt.Errorf("max retries exceeded after 429 responses")
+	return nil, fmt.Errorf("max retries exceeded")
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Main
-// ──────────────────────────────────────────────────────────────────────────────
 func main() {
 	var tickers []string
-
 	if len(os.Args) > 1 {
 		tickers = os.Args[1:]
 	} else {
 		var ticker string
-		fmt.Print(cyan + bold + "Enter Ticker (e.g. MSFT): " + reset)
+		fmt.Print(aquaBlue + bold + "Enter Ticker (e.g. MSFT): " + reset)
 		fmt.Scanln(&ticker)
 		if ticker != "" {
 			tickers = append(tickers, ticker)
@@ -146,219 +120,108 @@ func main() {
 		return
 	}
 
-	for i := range tickers {
-		tickers[i] = strings.ToUpper(strings.TrimSpace(tickers[i]))
-	}
-
-	fmt.Printf("\n" + warmYellow + bold + "EDGARv2" + reset + "\n")
+	fmt.Printf("\n" + forestGreen + bold + "EDGARv2 (Evergreen Edition)" + reset + "\n")
 
 	for _, ticker := range tickers {
-		if ticker == "" {
+		t := strings.ToUpper(strings.TrimSpace(ticker))
+		if t == "" {
 			continue
 		}
-		fmt.Printf(dim+"Ticker: "+cyan+"%s%s%s\n\n", bold, ticker, reset)
-		processTicker(ticker)
+		fmt.Printf(bgGray+"Ticker: "+aquaBlue+"%s%s%s\n\n", bold, t, reset)
+		processTicker(t)
 	}
 }
 
 func processTicker(ticker string) {
-	// 1. Get CIK
-	fmt.Printf(dim + "Looking up CIK... " + reset)
+	fmt.Printf(bgGray + "Looking up CIK... " + reset)
 	CIK, err := getCIK(ticker)
 	if err != nil {
 		fmt.Printf("%sFailed: %v%s\n", softRed, err, reset)
 		return
 	}
 	paddedCIK := fmt.Sprintf("%010d", CIK)
-	fmt.Printf("%sOK: %s%s\n", mutedGreen, paddedCIK, reset)
+	fmt.Printf("%sOK: %s%s\n", forestGreen, paddedCIK, reset)
 
-	// 2. Get filings
-	fmt.Printf(dim + "Fetching recent filings... " + reset)
+	fmt.Printf(bgGray + "Fetching filings... " + reset)
 	submissions, err := getFilings(paddedCIK)
 	if err != nil {
 		fmt.Printf("%sError: %v%s\n", softRed, err, reset)
 		return
 	}
-	fmt.Printf("%sOK%s\n", mutedGreen, reset)
+	fmt.Printf("%sOK%s\n", forestGreen, reset)
 
-	// Count 10-K / 10-Q
-	var count10K, count10Q int
-	for _, form := range submissions.Filings.Recent.Form {
-		switch form {
-		case "10-K":
-			count10K++
-		case "10-Q":
-			count10Q++
-		}
-	}
-	fmt.Printf(dim+"Found "+cyan+"%s"+warmYellow+"%d 10-K Forms%s "+dim+"and "+warmYellow+"%s%d 10-Q Forms%s\n\n",
-		bold, count10K, reset, bold, count10Q, reset)
-
-	if count10K+count10Q == 0 {
-		fmt.Println(warmYellow + "No recent 10-K or 10-Q found." + reset)
-		return
-	}
-
-	// Directory
-	downloadDir := "./filings_" + ticker
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
-		fmt.Printf("%sError creating directory %s → %v%s\n", softRed, downloadDir, err, reset)
-		return
-	}
-	fmt.Printf(cyan+"Target: "+reset+"%s\n", downloadDir)
-	fmt.Printf(cyan+"Processing up to %d recent 10-K/Q (skipping existing)\n\n"+reset, MaxFilesToFetch)
-
-	// Build list of files to download
 	var items []item
 	for i, formType := range submissions.Filings.Recent.Form {
-		if formType != "10-K" && formType != "10-Q" {
-			continue
+		if (formType == "10-K" || formType == "10-Q") && len(items) < MaxFilesToFetch {
+			items = append(items, item{
+				formType: formType,
+				accNum:   submissions.Filings.Recent.AccessionNumber[i],
+				docName:  submissions.Filings.Recent.PrimaryDoc[i],
+				dateStr:  submissions.Filings.Recent.FilingDate[i],
+			})
 		}
-		if len(items) >= MaxFilesToFetch {
-			break
-		}
-		items = append(items, item{
-			formType: formType,
-			accNum:   submissions.Filings.Recent.AccessionNumber[i],
-			docName:  submissions.Filings.Recent.PrimaryDoc[i],
-			dateStr:  submissions.Filings.Recent.FilingDate[i],
-		})
 	}
 
-	total := len(items)
-	if total == 0 {
-		fmt.Println(warmYellow + "No files to process." + reset)
+	if len(items) == 0 {
+		fmt.Println(earthYellow + "No recent 10-K/Q found." + reset)
 		return
 	}
 
-	fmt.Printf(warmYellow+"Processing %d file(s):"+reset+"\n", total)
+	downloadDir := "./filings_" + ticker
+	os.MkdirAll(downloadDir, 0755)
 
-	spinners := []string{"▃", "▄", "▅", "▆", "▇", "█"}
-	spinnerIdx := 0
-	var processed, skipped, failed int
-	var errors []string
+	fmt.Printf(earthYellow+"Processing %d file(s) into .txt..."+reset+"\n", len(items))
 
+	spinners := []string{" ", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
 	for idx, it := range items {
-		percent := float64(idx) / float64(total)
+		percent := float64(idx) / float64(len(items))
 		filled := int(percent * float64(barWidth))
-		bar := strings.Repeat("■", filled) + strings.Repeat("□", barWidth-filled)
+		bar := strings.Repeat("■", filled) + strings.Repeat(" ", barWidth-filled)
 
-		fmt.Printf("\r\033[K %s %s (%s) [%s%s%s] %3.0f%%%s ",
-			spinners[spinnerIdx%len(spinners)],
-			it.formType,
-			it.dateStr,
-			mutedGreen, bar, reset,
-			percent*100,
-			reset)
-		spinnerIdx++
-		time.Sleep(80 * time.Millisecond)
+		fmt.Printf("\r\033[K %s %s (%s) [%s%s%s] %3.0f%% ",
+			spinners[idx%len(spinners)], it.formType, it.dateStr, forestGreen, bar, reset, percent*100)
 
 		err := downloadFiling(paddedCIK, it.accNum, it.docName, it.dateStr, it.formType, downloadDir)
 
-		// Update line with result
-		var icon, color string
-		if err != nil {
-			if strings.Contains(err.Error(), "already exists") {
-				icon = " "
-				color = warmYellow
-				skipped++
-			} else {
-				icon = " "
-				color = softRed
-				msg := fmt.Sprintf("%s (%s): %v", it.formType, it.dateStr, err)
-				errors = append(errors, msg)
-				failed++
-			}
-		} else {
-			icon = " "
-			color = mutedGreen
-			processed++
+		if err != nil && !strings.Contains(err.Error(), "exists") {
+			fmt.Printf("\n%sError: %v%s\n", softRed, err, reset)
 		}
-
-		fmt.Printf("\r\033[K %s%s%s %s (%s) [%s%s%s] %3.0f%%%s ",
-			color, icon, reset,
-			it.formType,
-			it.dateStr,
-			mutedGreen, bar, reset,
-			percent*100,
-			reset)
 	}
 
 	fmt.Printf("\r\033[K ✓ [%s] 100%% \n", strings.Repeat("■", barWidth))
-
-	// Summary
-	fmt.Println("\n" + strings.Repeat("─", 60))
-	fmt.Printf("%sSummary:%s\n", cyan+bold, reset)
-	fmt.Printf(" Processed: %s%d%s\n", mutedGreen, processed, reset)
-	fmt.Printf(" Skipped:   %s%d%s\n", warmYellow, skipped, reset)
-	fmt.Printf(" Failed:    %s%d%s\n", softRed, failed, reset)
-
-	if len(errors) > 0 {
-		fmt.Printf("\n%s%d error(s):%s\n", softRed+bold, len(errors), reset)
-		for _, e := range errors {
-			fmt.Printf(" • %s\n", e)
-		}
-	} else if processed+skipped > 0 {
-		fmt.Printf("\n%s ✓ All done! %s\n", mutedGreen+bold, reset)
-	}
-
-	fmt.Printf("\nFiles saved in: %s%s%s\n", cyan, downloadDir, reset)
+	fmt.Printf("\n%sFiles saved in: %s%s%s\n", bgGray, aquaBlue, downloadDir, reset)
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Updated helpers (now use rate limiter + retry)
-// ──────────────────────────────────────────────────────────────────────────────
 func getCIK(ticker string) (int, error) {
-	req, err := http.NewRequest("GET", "https://www.sec.gov/files/company_tickers.json", nil)
-	if err != nil {
-		return 0, err
-	}
+	req, _ := http.NewRequest("GET", "https://www.sec.gov/files/company_tickers.json", nil)
 	req.Header.Set("User-Agent", UserAgent)
-
 	resp, err := doRateLimitedRequest(req)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("received status %d", resp.StatusCode)
-	}
-
 	var data TickerMap
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return 0, err
-	}
-
+	json.NewDecoder(resp.Body).Decode(&data)
 	for _, c := range data {
 		if strings.EqualFold(c.Ticker, ticker) {
 			return c.CIK, nil
 		}
 	}
-	return 0, fmt.Errorf("ticker %q not found", ticker)
+	return 0, fmt.Errorf("ticker not found")
 }
 
 func getFilings(paddedCIK string) (Submissions, error) {
 	url := fmt.Sprintf("https://data.sec.gov/submissions/CIK%s.json", paddedCIK)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return Submissions{}, err
-	}
+	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", UserAgent)
-
 	resp, err := doRateLimitedRequest(req)
 	if err != nil {
 		return Submissions{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return Submissions{}, fmt.Errorf("status %d", resp.StatusCode)
-	}
-
 	var s Submissions
-	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
-		return Submissions{}, err
-	}
+	json.NewDecoder(resp.Body).Decode(&s)
 	return s, nil
 }
 
@@ -370,37 +233,63 @@ func downloadFiling(paddedCIK, accNum, docName, date, form, dir string) error {
 	filename := filepath.Join(dir, fmt.Sprintf("%s_%s.txt", date, form))
 
 	if _, err := os.Stat(filename); err == nil {
-		return fmt.Errorf("already exists")
+		return nil // Skip if exists
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return err
-	}
+	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", UserAgent)
-
 	resp, err := doRateLimitedRequest(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
-	}
+	htmlBytes, _ := io.ReadAll(resp.Body)
 
-	htmlBytes, err := io.ReadAll(resp.Body)
+	// Convert with PrettyTables OFF for better LLM tokenization
+	text, err := html2text.FromString(string(htmlBytes), html2text.Options{PrettyTables: false})
 	if err != nil {
-		return fmt.Errorf("failed to read body: %v", err)
+		return err
 	}
 
-	text := html2text.HTML2Text(string(htmlBytes))
-	if err != nil {
-		return fmt.Errorf("conversion failed: %v", err)
-	}
+	// 1. Clean "Non-Breaking" Spaces (SEC filings are full of these)
+	text = strings.ReplaceAll(text, "\u00a0", " ")
 
-	if err := os.WriteFile(filename, []byte(text), 0644); err != nil {
-		return fmt.Errorf("write failed: %v", err)
-	}
-	return nil
+	// 2. XBRL "Soup" Stripper
+	// Removes lines starting with technical schema links (http, xbrli, etc.)
+	reSoup := regexp.MustCompile(`(?m)^(http|https|xmlns|xbrli):.*$`)
+	text = reSoup.ReplaceAllString(text, "")
+
+	// 3. Fix "Drifting" Symbols (Keeps currencies and negatives connected)
+	// Joins $ and ( to the numbers they belong to
+	reDrift := regexp.MustCompile(`([$\(\-])\s+`)
+	text = reDrift.ReplaceAllString(text, "$1")
+	reParensClose := regexp.MustCompile(`\s+\)`)
+	text = reParensClose.ReplaceAllString(text, ")")
+
+	// 4. Kill lines that contain ONLY whitespace (spaces/tabs)
+	// This allows the next step to catch "empty" lines that aren't actually empty.
+	reOnlyWhitespace := regexp.MustCompile(`(?m)^[ \t]+$`)
+	text = reOnlyWhitespace.ReplaceAllString(text, "")
+
+	// 5. Page Number Stripping (removes standalone digits or "Page X")
+	rePage := regexp.MustCompile(`(?m)^(\s*\d+\s*|\s*[Pp]age\s+\d+\s*)$`)
+	text = rePage.ReplaceAllString(text, "")
+
+	// 6. Collapse multiple newlines (3+ becomes 2)
+	// NotebookLM prefers double-newlines for distinct context blocks.
+	reMultiLine := regexp.MustCompile(`\n{3,}`)
+	text = reMultiLine.ReplaceAllString(text, "\n\n")
+
+	// 7. Trim leading/trailing whitespace
+	text = strings.TrimSpace(text)
+
+	// 8. Build the final output with Metadata at the TOP
+	// Using a distinct header helps the AI cite its sources chronologically.
+	header := fmt.Sprintf("--- METADATA ---\nCOMPANY: %s\nCIK: %s\nFORM: %s\nDATE: %s\n----------------\n\n",
+		dir, paddedCIK, form, date)
+
+	finalContent := header + text
+
+	return os.WriteFile(filename, []byte(finalContent), 0644)
 }
