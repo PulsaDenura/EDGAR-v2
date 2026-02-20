@@ -244,7 +244,10 @@ func downloadFiling(paddedCIK, accNum, docName, date, form, dir string) error {
 	}
 	defer resp.Body.Close()
 
-	htmlBytes, _ := io.ReadAll(resp.Body)
+	htmlBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading SEC filing body: %w", err)
+	}
 
 	// Convert with PrettyTables OFF for better LLM tokenization
 	text, err := html2text.FromString(string(htmlBytes), html2text.Options{PrettyTables: false})
