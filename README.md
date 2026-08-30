@@ -1,4 +1,7 @@
-# SEC Filing Downloader (Go)
+<img width="324" height="279" alt="image" src="https://github.com/user-attachments/assets/3af47bbc-440f-4058-9ca1-20387460b438" />
+
+
+# SEC Filing Downloader (written in Go)
 
 A fast, minimal, and **domain-correct** Go tool for downloading SEC EDGAR filings
 directly from the official SEC endpoints.
