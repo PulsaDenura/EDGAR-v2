@@ -3,6 +3,8 @@
 A fast, minimal, and **domain-correct** Go tool for downloading SEC EDGAR filings
 directly from the official SEC endpoints.
 
+Useful for feeding into LLMS and tools like NotebookLM for market research.
+
 Designed for:
 - investors
 - analysts
